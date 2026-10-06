@@ -1,9 +1,15 @@
 # Third-party MATLAB code
 
 The MATLAB code of this package builds on code written by others, which is not
-redistributed here. Place it in this folder (any subfolder structure works,
-`bs_paths.m` adds the folder recursively) or list its location in
-`matlab/local_paths.m` (see `local_paths_example.m`).
+redistributed here. Put the replication files of Patton, Ziegel and Chen
+(2019) listed below into `matlab/thirdparty/patton/`, and the toolboxes either
+into other subfolders of `matlab/thirdparty/` or anywhere else, listing their
+folders in `matlab/local_paths.m` (see `local_paths_example.m`).
+
+`bs_paths.m` gives the files in `thirdparty/patton/` precedence over the
+toolboxes. This matters: `garchpq.m` and `skewtdis_*.m` of Patton et al.
+differ from the files of the same name in the UCSD GARCH toolbox, and the
+results of the paper were produced with the versions of Patton et al.
 
 ## Replication files of Patton, Ziegel and Chen (2019)
 
