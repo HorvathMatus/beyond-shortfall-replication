@@ -148,3 +148,10 @@ for expected shortfall (and value-at-risk). *Journal of Econometrics* 211(2),
 
 Horváth, M. and Výrost, T. (2025). No shortfall of ES estimators: Insights from
 cryptocurrency portfolios. *Finance Research Letters* 73, 106685.
+
+## License
+
+The code in this repository is released under the MIT License (see
+`LICENSE`). The license does not cover the third-party MATLAB code listed in
+`matlab/thirdparty/README.md` or the CoinMarketCap data, which are not part of
+the repository.
