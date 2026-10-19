@@ -108,6 +108,7 @@ eval_asset <- function(root, a) {
         bt <- if (ok[m]) {
           vt  <- tryCatch(rugarch::VaRTest(alpha = tau, actual = y, VaR = v, conf.level = 0.95),
                           error = function(err) list(uc.LRp = NA, cc.LRp = NA))
+          set.seed(123)   # the ESR test uses random starting values (esreg); fixed for reproducibility
           esr <- tryCatch(esback::esr_backtest(y, v, e, alpha = tau, version = 1)$pvalue_twosided_asymptotic,
                           error = function(err) NA_real_)
           c(hit = mean(y <= v), uc = vt$uc.LRp, cc = vt$cc.LRp, esr = esr)

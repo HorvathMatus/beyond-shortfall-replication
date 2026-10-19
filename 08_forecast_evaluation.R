@@ -45,6 +45,7 @@ for (tl in names(TAILS)) {
         bt[[length(bt) + 1]] <- data.frame(tail = tl, tau = tau, model = m,
           hit = NA, uc = NA, cc = NA, esr = NA); next }
       vt  <- VaRTest(alpha = tau, actual = y, VaR = v, conf.level = 1 - SIG)
+      set.seed(123)   # the ESR test uses random starting values (esreg); fixed for reproducibility
       esr <- tryCatch(esr_backtest(y, v, e, alpha = tau, version = 1)$pvalue_twosided_asymptotic,
                       error = function(err) NA_real_)
       bt[[length(bt) + 1]] <- data.frame(tail = tl, tau = tau, model = m,

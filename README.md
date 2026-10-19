@@ -51,7 +51,7 @@ data used in the paper.
 
 ```
 config.R          paths (MATLAB_DIR, TEX_DIR, FIG_DIR); edit here only
-01_...21_*.R      numbered steps (R)
+01_...22_*.R      numbered steps (R)
 R/                helper functions used by the R steps
 matlab/           MATLAB steps 02, 06, 10, 14, 18 and their functions;
                   also holds the MATLAB input and output files
@@ -100,10 +100,11 @@ parallel MATLAB workers.
 | 17 | R | ex-ante choice of the forecasting model for each tail (schedules for step 18) | 1 min |
 | 18 | MATLAB | MQR portfolios with the model chosen per tail | 6 h |
 | 19 | R | performance of the tail-specific portfolios | 1 min |
-| 20 | R | volatility and returns around the switches of the unconstrained portfolios | seconds |
+| 20 | R | volatility and returns around the switches of the unconstrained portfolios (calendar block bootstrap) | seconds |
 | 21 | R | main Bitcoin tables (models re-estimated every 91 days): steps 04 and 08 on the step-14 forecasts | 4 min |
+| 22 | R | sensitivity of the cross-asset rankings to the replaced FZ-2F forecasts (numbers in Section 5.5) | 1 min |
 
-Run the steps in the order 01–21. The MATLAB weight files of steps 06 and 18 are
+Run the steps in the order 01–22. The MATLAB weight files of steps 06 and 18 are
 skipped if they already exist, so these steps can be interrupted and resumed.
 
 ## Tables and figures
@@ -118,18 +119,20 @@ skipped if they already exist, so these steps can be interrupted and resumed.
 | inference on the differences between the tails | `tables/TailInference.tex` | 16 |
 | portfolio performance, concentration, weight caps, rebalancing, transaction costs | `tables/Performance.tex`, `Concentration.tex`, `CapSummary.tex`, `PerformanceCap.tex`, `PerformanceRebal.tex`, `PerformanceNet.tex` | 07 |
 | switches of the unconstrained portfolios | `tables/SwitchAnalysis.tex` | 20 |
+| sensitivity to the replaced FZ-2F forecasts | printed by step 22 (`data/fz2f_sensitivity.rds`) | 22 |
 | historical reward–risk benchmarks | `tables/RewardRisk.tex` | 13 |
 | model chosen per tail | `tables/TailSpecific.tex`, `figures/tailspecific_sr.png` | 19 |
 | ex-ante preference coefficient | `tables/AdaptiveC.tex` | 12 |
 | portfolio figures | `figures/c_frontier.png`, `weights_models.png`, `rebalancing_heatmap.png`, `cumulative_wealth_models.png`, `cumulative_wealth_cap.png`, `weights_rw125.png` | 07 |
-| Appendix A (models estimated once) | `tables/*_fixed.tex` | 04, 08, 11 |
+| Appendix B (models estimated once) | `tables/*_fixed.tex` | 04, 08, 11 |
 
 ## Reproducibility notes
 
 * Random numbers: the MCS bootstrap uses `set.seed(123)` for every comparison,
-  the Single-Index model `set.seed(123)`, the tail-inference bootstrap
-  `set.seed(2026)`, the Rachev multistart `set.seed(2024)` and the bootstrap of
-  the switch analysis `set.seed(7)`.
+  the Single-Index model `set.seed(123)`, the ESR backtest (`esback`, which
+  draws random starting values) `set.seed(123)` before every test, the
+  tail-inference bootstrap `set.seed(2026)`, the Rachev multistart
+  `set.seed(2024)` and the block bootstrap of the switch analysis `set.seed(7)`.
 * All estimation choices use in-sample information only. Forecasts that are
   non-finite or violate ES ≤ VaR < 0 are replaced in real time by the model's
   most recent usable forecast (`realtime_guard` in `R/forecast_eval.R`).

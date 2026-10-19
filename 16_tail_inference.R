@@ -15,9 +15,16 @@
 #      differences are unit-free, so d_t can be pooled across assets and tails.
 #      Its mean is tested asset by asset and level by level with a HAC t-test,
 #      and pooled across assets and levels.
+#      Alongside the interaction, the loss differences of A and B in each tail,
+#      which show whether the better of the two models changes between the tails.
 #   3. Spearman correlation between the ES and EU rankings (models other than
 #      the Single Index), averaged over assets and levels (printed and saved; not
 #      tabulated, because its percentile interval is biased downwards).
+#
+# Multiple testing: within each scheme the 11 rank shifts and the 4
+# interactions form one family of 15 hypotheses. Bootstrap p-values are
+# adjusted with the method of Holm (1979), and simultaneous 95% intervals are
+# computed from the bootstrap distribution of the maximum studentised deviation.
 #
 # Confidence intervals come from a moving-block bootstrap that resamples blocks
 # of calendar days jointly for all assets, tails, levels and models, so that
@@ -79,11 +86,15 @@ stats_fast <- function(D, lk, cal_idx) {
       ranks[[length(ranks) + 1]] <- rup - rlo
       keep <- setdiff(MODEL_ORDER, "Single Index"); ok <- keep[is.finite(rlo[keep]) & is.finite(rup[keep])]
       rhos <- c(rhos, cor(rank(mlo[ok]), rank(mup[ok]), method = "spearman"))
-      inter[[length(inter) + 1]] <- sapply(PAIRS, function(p) (mlo[p[1]] - mlo[p[2]]) - (mup[p[1]] - mup[p[2]]))
+      inter[[length(inter) + 1]] <- c(
+        sapply(PAIRS, function(p) (mlo[p[1]] - mlo[p[2]]) - (mup[p[1]] - mup[p[2]])),
+        sapply(PAIRS, function(p) mlo[p[1]] - mlo[p[2]]),
+        sapply(PAIRS, function(p) mup[p[1]] - mup[p[2]]))
     }
   }
+  pn <- sapply(PAIRS, paste, collapse = "|")
   c(setNames(rowMeans(do.call(cbind, ranks), na.rm = TRUE), paste0("shift:", MODEL_ORDER)),
-    setNames(rowMeans(do.call(cbind, inter), na.rm = TRUE), paste0("inter:", sapply(PAIRS, paste, collapse = "|"))),
+    setNames(rowMeans(do.call(cbind, inter), na.rm = TRUE), c(paste0("inter:", pn), paste0("dlow:", pn), paste0("dup:", pn))),
     rho = mean(rhos))
 }
 
@@ -101,8 +112,16 @@ for (sc in names(SCHEMES)) {
     boot <- t(replicate(B_BOOT, stats_fast(D, lk, mbb_index(length(cal), l))))
     cat(sprintf("%s, block %d: %d replications in %.1f s\n", sc, l, B_BOOT,
                 as.numeric(difftime(Sys.time(), t0, units = "secs"))))
+    # bootstrap p-values (percentile) and the family of 15 tests: rank shifts and interactions
+    pval <- apply(boot, 2, function(b) min(1, 2 * min(mean(b <= 0, na.rm = TRUE), mean(b >= 0, na.rm = TRUE))))
+    se   <- apply(boot, 2, sd, na.rm = TRUE)
+    fam  <- grepl("^shift:|^inter:", names(est))    # 11 rank shifts + 4 interactions
+    p_holm <- rep(NA_real_, length(est)); p_holm[fam] <- p.adjust(pval[fam], method = "holm")
+    tmax <- apply(abs(sweep(boot[, fam, drop = FALSE], 2, est[fam])) / matrix(se[fam], nrow(boot), sum(fam), byrow = TRUE), 1, max, na.rm = TRUE)
+    cval <- quantile(tmax, 0.95)
     res[[paste(sc, l)]] <- data.table(scheme = sc, block = l, stat = names(est), est = est,
-      lo95 = apply(boot, 2, quantile, 0.025, na.rm = TRUE), hi95 = apply(boot, 2, quantile, 0.975, na.rm = TRUE))
+      lo95 = apply(boot, 2, quantile, 0.025, na.rm = TRUE), hi95 = apply(boot, 2, quantile, 0.975, na.rm = TRUE),
+      p = pval, p_holm = p_holm, slo = ifelse(fam, est - cval * se, NA), shi = ifelse(fam, est + cval * se, NA))
   }
 }
 res <- rbindlist(res)
@@ -128,46 +147,51 @@ cat("\n=== HAC interaction tests (t < -1.96 : A relatively better in the lower t
 saveRDS(list(boot = res, hac = hac, hac_sum = hac_sum), "data/tail_inference.rds")
 
 # ---- LaTeX ------------------------------------------------------------------
-fmt <- function(sc, st, d = 2) {
+num <- function(x, d) sprintf(paste0("%+.", d, "f"), x)
+pf  <- function(p) if (is.na(p)) "" else if (p < 0.001) "0.000" else sprintf("%.3f", p)
+cell <- function(sc, st, d = 2, holm = TRUE) {
   x <- res[scheme == sc & block == BLOCK & stat == st]
-  sig <- (x$lo95 > 0 | x$hi95 < 0)
-  s <- sprintf(paste0("%+.", d, "f"), x$est)
-  sprintf("%s & [%s, %s]", if (sig) paste0("\\textbf{", s, "}") else s,
-          sprintf(paste0("%+.", d, "f"), x$lo95), sprintf(paste0("%+.", d, "f"), x$hi95))
+  sig <- if (holm) isTRUE(x$p_holm < 0.05) else (x$lo95 > 0 | x$hi95 < 0)
+  e <- num(x$est, d); if (sig) e <- paste0("\\textbf{", e, "}")
+  sprintf("%s & [%s, %s] & %s", e, num(x$lo95, d), num(x$hi95, d), if (holm) pf(x$p_holm) else "")
 }
 rowsA <- unlist(lapply(MODEL_ORDER, function(m) {
-  r <- sprintf("%-12s & %s & & %s & \\\\", m, fmt("Rolling", paste0("shift:", m)), fmt("Fixed", paste0("shift:", m)))
+  r <- sprintf("%-12s & %s & %s \\\\", m, cell("Rolling", paste0("shift:", m)), cell("Fixed", paste0("shift:", m)))
   if (m %in% c("RW-500", "GARCH-FZ", "Hybrid")) c(r, "\\hline") else r }))
-rowsB <- sapply(PAIRS, function(p) {
-  st <- paste0("inter:", paste(p, collapse = "|"))
-  hs <- function(sc) { h <- hac_sum[scheme == sc & pair == paste(p, collapse = "|")]; sprintf("%d / %d", h$neg, h$pos) }
-  sprintf("%s vs %s & %s & %s & %s & %s \\\\", p[1], p[2], fmt("Rolling", st, 3), hs("Rolling"),
-          fmt("Fixed", st, 3), hs("Fixed"))
-})
+rowsB <- unlist(lapply(seq_along(PAIRS), function(i) {
+  p <- PAIRS[[i]]; pn <- paste(p, collapse = "|")
+  c(sprintf("\\multicolumn{7}{l}{%s vs %s} \\\\", p[1], p[2]),
+    sprintf("\\quad lower tail & %s & %s \\\\", cell("Rolling", paste0("dlow:", pn), 3, FALSE), cell("Fixed", paste0("dlow:", pn), 3, FALSE)),
+    sprintf("\\quad upper tail & %s & %s \\\\", cell("Rolling", paste0("dup:", pn), 3, FALSE), cell("Fixed", paste0("dup:", pn), 3, FALSE)),
+    sprintf("\\quad interaction & %s & %s \\\\", cell("Rolling", paste0("inter:", pn), 3), cell("Fixed", paste0("inter:", pn), 3)),
+    if (i < length(PAIRS)) "\\hline")
+}))
 L <- c("\\begin{table}[ht]", "\\centering",
   "\\caption{Inference on the differences between the lower- and upper-tail model comparisons.}",
-  "\\label{tab:TailInference}", "\\begin{center}", "\\small", "\\begin{tabular}{lrcrcrc}", "\\toprule",
+  "\\label{tab:TailInference}", "\\begin{center}", "\\small", "\\begin{tabular}{lrcrrcr}", "\\toprule",
   "& \\multicolumn{3}{c}{Rolling} & \\multicolumn{3}{c}{Fixed} \\\\",
   "\\cmidrule(lr){2-4}\\cmidrule(lr){5-7}",
+  "& Estimate & 95\\% CI & $p_{\\mathrm{Holm}}$ & Estimate & 95\\% CI & $p_{\\mathrm{Holm}}$ \\\\", "\\midrule",
   "\\multicolumn{7}{l}{\\textit{Panel A: average rank shift (EU rank $-$ ES rank)}} \\\\",
-  "Model & Estimate & 95\\% CI & & Estimate & 95\\% CI & \\\\", "\\midrule",
-  rowsA,
-  "\\midrule",
-  "\\multicolumn{7}{l}{\\textit{Panel B: tail interaction of the FZ loss difference, A vs B}} \\\\",
-  "Pair & Estimate & 95\\% CI & HAC $-$/$+$ & Estimate & 95\\% CI & HAC $-$/$+$ \\\\", "\\midrule",
+  rowsA, "\\midrule",
+  "\\multicolumn{7}{l}{\\textit{Panel B: FZ loss difference of A minus B, by tail, and its change between the tails}} \\\\",
   rowsB,
   "\\bottomrule", "\\end{tabular}", "\\end{center}", "\\small",
   paste0("\\textit{Notes: Results pooled over the seven assets and four quantile levels, for the models re-estimated ",
     "every 91 days (Rolling) and estimated once (Fixed). Panel A: average over assets and levels of a model's ",
     "rank by mean FZ$^{(0)}$ loss in the upper tail minus its rank in the lower tail; a positive value indicates ",
-    "a model that is relatively worse in the upper tail. Panel B: average of the daily difference ",
-    "$[L^{low}_t(A) - L^{low}_t(B)] - [L^{up}_t(A) - L^{up}_t(B)]$; a negative value indicates that A's ",
-    "advantage over B is larger in the lower than in the upper tail. HAC $-$/$+$ counts the asset--level cases ",
-    "(of 28) in which a HAC $t$-test rejects a zero mean at the 5\\% level with a negative or positive sign. ",
-    "Confidence intervals are percentile intervals from ", B_BOOT, " moving-block bootstrap replications ",
-    "with blocks of ", BLOCK, " calendar days resampled jointly across assets, tails, levels and models; ",
-    "estimates whose interval excludes zero are in bold. Blocks of 50 days give similar intervals. Because resampling ",
-    "adds noise to the rankings and so pulls rank shifts towards zero, the intervals in Panel A are conservative.}"),
+    "a model that is relatively worse in the upper tail. Panel B: average difference between the mean FZ$^{(0)}$ ",
+    "losses of A and B in each tail (negative: A more accurate) and the interaction ",
+    "$[L^{low}_t(A) - L^{low}_t(B)] - [L^{up}_t(A) - L^{up}_t(B)]$ (negative: A's advantage over B is larger in ",
+    "the lower tail). Confidence intervals are percentile intervals from ", B_BOOT, " moving-block bootstrap ",
+    "replications with blocks of ", BLOCK, " calendar days resampled jointly across assets, tails, levels and models; ",
+    "blocks of 50 days give similar intervals. $p_{\\mathrm{Holm}}$: bootstrap p-values adjusted with the method of ",
+    "\\citet{Holm1979} within the family of the 15 rank shifts and interactions of each scheme. Bold: ",
+    "$p_{\\mathrm{Holm}} < 0.05$ for the rank shifts and interactions; an unadjusted 95\\% interval that excludes ",
+    "zero for the losses in each tail. Simultaneous 95\\% intervals for the family (max-$t$ bootstrap) lead to the ",
+    "same conclusions, except that they also exclude zero for the rank shift of GARCH-Skt under the fixed scheme. ",
+    "Because resampling adds noise to the rankings and so pulls rank shifts towards zero, the inference in Panel A ",
+    "is conservative.}"),
   "\\end{table}")
 writeLines(L, file.path(TEX_DIR, "TailInference.tex"))
 cat("\nTable written:", file.path(TEX_DIR, "TailInference.tex"), "\n")
