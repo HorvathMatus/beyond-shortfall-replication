@@ -96,7 +96,7 @@ parallel MATLAB workers.
 | 13 | R | historical minimum-CVaR, Omega and Rachev portfolios | 20 min |
 | 14 | MATLAB | forecasts for the seven assets, models re-estimated every 91 days (`matlab/assets_roll/`) | 20 min |
 | 15 | R | Single-Index forecasts with re-estimation, evaluation, main cross-asset tables, comparison of the schemes | 55 min |
-| 16 | R | bootstrap and HAC inference on the differences between the tails | 1 min |
+| 16 | R | bootstrap inference (9,999 replications, Holm adjustment) on the differences between the tails | 5 min |
 | 17 | R | ex-ante choice of the forecasting model for each tail (schedules for step 18) | 1 min |
 | 18 | MATLAB | MQR portfolios with the model chosen per tail | 6 h |
 | 19 | R | performance of the tail-specific portfolios | 1 min |
@@ -133,6 +133,9 @@ skipped if they already exist, so these steps can be interrupted and resumed.
   draws random starting values) `set.seed(123)` before every test, the
   tail-inference bootstrap `set.seed(2026)`, the Rachev multistart
   `set.seed(2024)` and the block bootstrap of the switch analysis `set.seed(7)`.
+* Bootstrap p-values in step 16 invert the percentile intervals with
+  the finite-sample correction p = 2 min(1 + #{θ* ≤ 0}, 1 + #{θ* ≥ 0}) / (B + 1);
+  they are adjusted with the Holm method within three families per scheme.
 * All estimation choices use in-sample information only. Forecasts that are
   non-finite or violate ES ≤ VaR < 0 are replaced in real time by the model's
   most recent usable forecast (`realtime_guard` in `R/forecast_eval.R`).
