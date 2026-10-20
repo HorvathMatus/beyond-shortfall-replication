@@ -25,6 +25,9 @@
 #      quantile levels of (rank in the upper tail - rank in the lower tail).
 #   5. Spearman correlation between the ES and EU rankings (models other than
 #      the Single Index), averaged over assets and levels (printed and saved).
+#   6. Check without SOL, whose evaluation period starts in April 2023: the
+#      statistics of GARCH-Skt vs GARCH-FZ for the six assets with a common
+#      evaluation period, and the yearly sums behind the figure (printed).
 #
 # Pooling: every statistic is the equally weighted average over the 28
 # asset-level combinations of a per-combination mean over days. SOL enters
@@ -153,6 +156,16 @@ for (l in c(BLOCK, 50)) {
 }
 res <- rbindlist(res)
 
+# ---- check: GARCH-Skt vs GARCH-FZ without SOL (six assets, common period) -----
+ASSETS_ALL <- ASSETS; ASSETS <- setdiff(ASSETS_ALL, "SOL")       # stats_fast loops over ASSETS
+est6 <- stats_joint(seq_along(cal))
+boot6 <- t(replicate(1999, stats_joint(mbb_index(length(cal), BLOCK))))
+ASSETS <- ASSETS_ALL
+nosol <- rbindlist(lapply(c("Rolling", "Fixed", "Contrast"), function(sc) rbindlist(lapply(c("dlow:", "dup:", "inter:"), function(ty) {
+  st <- paste0(sc, "/", ty, PN[1]); b <- boot6[, st]
+  data.table(scheme = sc, stat = paste0(ty, PN[1]), est = est6[st], lo95 = quantile(b, 0.025), hi95 = quantile(b, 0.975), p = boot_p(b)) }))))
+cat("\n=== GARCH-Skt vs GARCH-FZ without SOL (1,999 replications) ===\n"); print(nosol, digits = 3)
+
 # ---- case-by-case HAC tests of the tail interaction ---------------------------
 hac <- rbindlist(lapply(names(SCHEMES), function(sc) {
   D <- DAT[[sc]]
@@ -171,7 +184,7 @@ hac_sum <- hac[, .(neg = sum(t < -1.96, na.rm = TRUE), pos = sum(t > 1.96, na.rm
 cat("\n=== Bootstrap results (block 20) ===\n"); print(res[block == BLOCK & stat != "rho"], digits = 3)
 cat("\n=== Spearman correlation, Rolling / Fixed: ", sprintf("%.2f / %.2f", est["Rolling/rho"], est["Fixed/rho"]), "\n")
 cat("\n=== HAC interaction tests (t < -1.96 : A relatively better in the lower tail) ===\n"); print(hac_sum)
-saveRDS(list(boot = res, hac = hac, hac_sum = hac_sum), "data/tail_inference.rds")
+saveRDS(list(boot = res, hac = hac, hac_sum = hac_sum, nosol = nosol), "data/tail_inference.rds")
 
 # ---- figure: cumulative loss differences of GARCH-Skt and GARCH-FZ ------------
 # daily average over the asset-level combinations with data on that day
@@ -205,6 +218,21 @@ par(mar = c(0, 0, 0, 0)); plot.new()
 legend("center", legend = c("Re-estimated every 91 days", "Estimated once", "lower tail", "upper tail"),
        col = c(cols, "black", "black"), lty = c(1, 1, 1, 2), lwd = 2, bty = "n", cex = 0.8, horiz = TRUE)
 dev.off()
+
+# check: the same yearly sums without SOL (six assets with a common evaluation period)
+yearly <- function(D, assets) {
+  s <- list(low = numeric(length(cal)), up = numeric(length(cal))); n <- numeric(length(cal))
+  for (a in assets) for (k in seq_along(TAUS)) {
+    pos <- D$pos[[a]]; n[pos] <- n[pos] + 1
+    for (tl in c("low", "up")) { L <- D$L[[a]][[k]][[tl]]; s[[tl]][pos] <- s[[tl]][pos] + (L[, PAIRS[[1]][1]] - L[, PAIRS[[1]][2]]) }
+  }
+  ok <- n > 0; yr <- format(cd, "%Y")[ok]
+  round(cbind(low = tapply((s$low / n)[ok], yr, sum), up = tapply((s$up / n)[ok], yr, sum)), 1)
+}
+for (sc in names(SCHEMES)) {
+  cat("\n", sc, ": yearly sums of the daily GARCH-Skt minus GARCH-FZ loss differences, 7 assets | 6 assets without SOL\n")
+  print(cbind(yearly(DAT[[sc]], ASSETS), yearly(DAT[[sc]], setdiff(ASSETS, "SOL"))))
+}
 
 # ---- LaTeX ------------------------------------------------------------------
 num <- function(x, d) { z <- sprintf(paste0("%+.", d, "f"), x); sub("^[+-](0\\.0+)$", "\\1", z) }  # no signed zero
